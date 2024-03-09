@@ -4,3 +4,4 @@ pub mod math;
 pub mod resampler;
 pub mod waves;
 pub mod delay_line;
+pub mod dft;

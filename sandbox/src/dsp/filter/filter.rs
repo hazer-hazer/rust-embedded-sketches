@@ -1,4 +1,4 @@
 pub trait Filter {
     fn reset(&mut self) {}
-    fn filter(&mut self, sample: f32) -> f32;
+    fn filter(&mut self, input: f32) -> f32;
 }

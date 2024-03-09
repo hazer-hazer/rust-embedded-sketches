@@ -17,7 +17,9 @@ pub fn sine_wave(sample_rate: u32, pitch: f32, volume: f32) -> Vec<f32> {
     // assert!(length.fract() == 0.0);
     let length = length.floor();
 
-    (0..length as usize).map(|i| (PI2 * i as f32 / length).sin() * volume)
+    (0..length as usize)
+        .map(|i| (PI2 * i as f32 / length).sin() * volume)
+        .collect()
 
     // num::range(T::zero(), T::from_f32(length).unwrap())
     //     .map(|i| {

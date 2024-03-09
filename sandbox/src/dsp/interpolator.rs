@@ -1,5 +1,7 @@
 use micromath::F32Ext as _;
 
+use super::math::{F32Ext, SampleList};
+
 #[derive(Clone, Copy)]
 pub enum InterpolationMode {
     Point,

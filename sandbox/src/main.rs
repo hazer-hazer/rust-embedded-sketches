@@ -10,7 +10,7 @@ use embedded_hal::digital::v2::OutputPin;
 extern crate sandbox;
 
 use num::{pow::Pow, ToPrimitive};
-use sandbox::{bsp, dsp::math::IntExt as _, exit, heap::init_global_heap, Vec};
+use sandbox::{bsp, dsp::math::F32Ext, exit, heap::init_global_heap, Vec};
 
 use embedded_graphics::{
     draw_target::DrawTarget,
@@ -203,14 +203,13 @@ fn main() -> ! {
     let mut fmt_buf = FmtBuf::<64>::new();
 
     let sample_rate = 44000;
-    let sine_wave = sine_wave::<u16>(sample_rate, 440.0, 1.0);
-    let sine_wave_samples = SampleList::new(&sine_wave, 16);
+    let sine_wave = sine_wave(sample_rate, 440.0, 1.0);
 
     let resample_rate = DISPLAY_WIDTH;
-    let mut resampler = ResamplerBuilder::<u16>::new(sample_rate, resample_rate)
+    let mut resampler = ResamplerBuilder::new(sample_rate, resample_rate)
         .no_lpf()
         .build();
-    let resampled_sine_wave = resampler.resample::<u16>(sine_wave_samples);
+    let resampled_sine_wave = resampler.resample(&sine_wave);
     defmt::assert_eq!(resampled_sine_wave.len(), DISPLAY_WIDTH as usize);
 
     info!("Resampled successfully");
@@ -270,7 +269,7 @@ fn main() -> ! {
             display
                 .set_pixel(
                     x as u16,
-                    y.remap_to_range((0, DISPLAY_HEIGHT as u16)),
+                    y.remap_to_int_range(0, DISPLAY_HEIGHT) as u16,
                     Rgb565::WHITE.into_storage(),
                 )
                 .unwrap();

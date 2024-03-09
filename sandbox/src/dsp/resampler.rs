@@ -52,7 +52,7 @@ impl Resampler {
         );
 
         let mut resampled = Vec::<f32>::new();
-        resampled.resize(to_len, f32::zero());
+        resampled.resize(to_len, 0.0);
 
         let upsample = self.from_rate < self.to_rate;
         if let Some(lpf) = &mut self.lpf {
@@ -87,7 +87,7 @@ impl Resampler {
                 // let filtered = SampleList::new(&filtered, samples.bit_depth());
 
                 resampled = (0..to_len)
-                    .map(|index| interpolator.interpolate(index, filtered))
+                    .map(|index| interpolator.interpolate(index, &filtered))
                     .collect();
             }
         } else {
