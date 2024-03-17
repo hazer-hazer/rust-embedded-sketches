@@ -1,0 +1,56 @@
+.program i2s_master_clock
+
+.wrap_target
+    set pins, 0b1 [1]
+    set pins, 0b0 [1]
+.wrap
+
+.program i2s_out_master
+
+.side_set 2
+
+; ; I use this PIO program I found, as it seems to support different bit depths
+; ; At least 16 and 32 easily, not sure about 24
+;                     ;        /--- LRCLK
+;                     ;        |/-- BCLK
+; bitloop1:           ;        ||
+;     out pins, 1       side 0b00
+;     jmp x-- bitloop1  side 0b01
+;     out pins, 1       side 0b10
+;     mov x, isr        side 0b11
+
+; bitloop0:
+;     out pins, 1       side 0b10
+;     jmp x-- bitloop0  side 0b11
+;     out pins, 1       side 0b00
+; public entry_point:
+;     mov x, isr        side 0b01
+
+;                     ;  /--- LR (WS)
+;                     ;  |/-- BCK
+;     set x  30   side 0b01
+; lch:
+;     out pins 1  side 0b00
+;     jmp x-- lch side 0b01
+;     out pins 1  side 0b10
+;     set x 30    side 0b11
+; rch:
+;     out pins 1  side 0b10
+;     jmp x-- rch side 0b11
+;     out pins 1  side 0b00
+
+                    ;        /--- LRCLK
+                    ;        |/-- BCLK
+frameL:             ;        ||
+    set x, 30         side 0b00 ; start of Left frame
+    pull noblock      side 0b01 ; One clock after edge change with no data
+dataL:
+    out pins, 1       side 0b00
+    jmp x-- dataL     side 0b01
+
+frameR:
+    set x, 30         side 0b10
+    pull noblock      side 0b11 ; One clock after edge change with no data
+dataR:
+    out pins, 1       side 0b10
+    jmp x-- dataR     side 0b11

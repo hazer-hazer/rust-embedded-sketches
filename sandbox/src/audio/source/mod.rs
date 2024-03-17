@@ -3,6 +3,8 @@ pub mod zero;
 
 use core::{iter::Iterator, marker::PhantomData, time::Duration};
 
+use micromath::F32Ext;
+
 use self::mix::{mix, Mix};
 
 #[derive(Clone, Copy)]
@@ -33,6 +35,8 @@ pub trait Sample: Clone + Copy {
     fn zero() -> Self;
     fn saturating_add(self, rhs: Self) -> Self;
     fn amplify(self, amount: f32) -> Self;
+    fn remap_int_range(self, from: i32, to: i32) -> i32;
+    fn remap_uint_range(self, from: u32, to: u32) -> u32;
 }
 
 impl Sample for f32 {
@@ -57,6 +61,16 @@ impl Sample for f32 {
 
     fn amplify(self, amount: f32) -> Self {
         self * amount
+    }
+
+    fn remap_int_range(self, from: i32, to: i32) -> i32 {
+        assert!(from <= to);
+        (self * (to - from) as f32) as i32 + from
+    }
+
+    fn remap_uint_range(self, from: u32, to: u32) -> u32 {
+        assert!(from <= to);
+        ((self + 1.0) * (to - from) as f32 / 2.0).round() as u32 + from
     }
 }
 

@@ -10,6 +10,7 @@ extern crate alloc;
 pub mod audio;
 pub mod display;
 pub mod fmt;
+pub mod rp2040_ext;
 // pub use waveshare_rp2040_zero as bsp;
 pub use rp_pico as bsp;
 pub mod dsp;

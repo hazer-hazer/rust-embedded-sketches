@@ -23,12 +23,9 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 panic-halt = "0.2.0"
 
 # HAL
-# rp2040-hal = { version = "0.9.2", features = [
-#     "rt",
-#     "critical-section-impl",
-#     "eh1_0_alpha",
-#     "defmt-03",
-# ] }
+# rp2040-hal = { version = "0.10.0", features = ["rt", "critical-section-impl"] }
+pio = "0.2"
+pio-proc = "0.2"
 
 # BSP
 rp-pico = "0.8"
@@ -126,5 +123,3 @@ opt-level = 3
 [features]
 default = ["graphics"]
 graphics = ["embedded-graphics"]
-
-eh1_0_alpha = []
