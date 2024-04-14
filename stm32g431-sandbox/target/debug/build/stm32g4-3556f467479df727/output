@@ -1,0 +1,3 @@
+cargo:rustc-link-search=/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/debug/build/stm32g4-3556f467479df727/out
+cargo:rerun-if-changed=src/stm32g431/device.x
+cargo:rerun-if-changed=build.rs

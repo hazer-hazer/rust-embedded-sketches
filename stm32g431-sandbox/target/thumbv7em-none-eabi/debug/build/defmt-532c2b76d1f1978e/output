@@ -1,0 +1,1 @@
+cargo:rustc-link-search=/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/thumbv7em-none-eabi/debug/build/defmt-532c2b76d1f1978e/out

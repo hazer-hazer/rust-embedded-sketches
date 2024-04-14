@@ -1,0 +1,90 @@
+[package]
+name = "paw-one"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+paw = { path = "../paw" }
+
+embassy-stm32 = { path = "../embassy/embassy-stm32", features = [
+    "defmt",
+    "rt",
+    "time-driver-any",
+    "time",
+    "stm32g431cb",
+    "memory-x",
+    "unstable-pac",
+    "exti",
+] }
+embassy-sync = { path = "../embassy/embassy-sync", features = ["defmt"] }
+embassy-executor = { path = "../embassy/embassy-executor", features = [
+    "arch-cortex-m",
+    "executor-thread",
+    "defmt",
+    "integrated-timers",
+    "task-arena-size-8192",
+] }
+embassy-time = { path = "../embassy/embassy-time", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+    "tick-hz-32_768",
+] }
+embassy-usb = { path = "../embassy/embassy-usb", features = ["defmt"] }
+embassy-futures = { path = "../embassy/embassy-futures" }
+embassy-hal-internal = { version = "0.1.0", path = "../embassy/embassy-hal-internal" }
+embassy-embedded-hal = { version = "0.1.0", path = "../embassy/embassy-embedded-hal", features = [
+    "defmt",
+] }
+
+usbd-hid = "0.7.0"
+
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.7"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+futures = { version = "0.3.17", default-features = false, features = [
+    "async-await",
+] }
+heapless = { version = "0.8", default-features = false }
+static_cell = "2.0.0"
+stm32g4xx-hal = { git = "https://github.com/stm32-rs/stm32g4xx-hal", features = [
+    "stm32g431",
+    "log-rtt",
+    "defmt",
+] }
+stm32g4 = { version = "0.15.1", features = ["stm32g431"] }
+
+embedded-alloc = { version = "0.5.1", features = [] }
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = "1.0"
+embedded-hal-bus = { version = "0.1", features = ["async", "defmt-03"] }
+micromath = "2.1.0"
+display-interface-spi = "0.5.0"
+display-interface = { version = "0.5.0", features = ["defmt-03"] }
+
+
+st7789 = "0.7.0"
+st7735-lcd = "0.10.0"
+
+cortex-m-semihosting = "0.5.0"
+byte-slice-cast = { version = "1.2.2", default-features = false }
+mipidsi = "0.7.1"
+embedded-text = "0.7.0"
+embedded-sdmmc = { version = "0.7.0", default-features = false, features = [
+    "defmt-log",
+] }
+
+[profile.dev]
+opt-level = 's'
+debug = 'full'
+
+[profile.release]
+debug = 'full'
+opt-level = 'z' # turn on maximum optimizations. We only have 64kB
+lto = true      # Link-time-optimizations for further size reduction

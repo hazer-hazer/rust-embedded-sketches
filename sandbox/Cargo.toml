@@ -72,9 +72,9 @@ codegen-units = 1
 debug = true
 debug-assertions = true
 incremental = false
-# opt-level = 3
+opt-level = 3
 # opt-level = 'z'
-opt-level = 0
+# opt-level = 0
 overflow-checks = true
 
 # cargo build/run --release

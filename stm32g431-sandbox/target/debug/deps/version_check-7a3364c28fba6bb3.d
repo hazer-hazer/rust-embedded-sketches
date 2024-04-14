@@ -1,0 +1,10 @@
+/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/debug/deps/libversion_check-7a3364c28fba6bb3.rmeta: /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/lib.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/version.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/channel.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/date.rs
+
+/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/debug/deps/libversion_check-7a3364c28fba6bb3.rlib: /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/lib.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/version.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/channel.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/date.rs
+
+/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/debug/deps/version_check-7a3364c28fba6bb3.d: /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/lib.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/version.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/channel.rs /home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/date.rs
+
+/home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/lib.rs:
+/home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/version.rs:
+/home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/channel.rs:
+/home/hazer-hazer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.4/src/date.rs:

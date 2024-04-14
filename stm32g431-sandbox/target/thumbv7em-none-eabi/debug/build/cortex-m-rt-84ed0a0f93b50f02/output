@@ -1,0 +1,5 @@
+cargo:rustc-cfg=cortex_m
+cargo:rustc-cfg=armv7m
+cargo:rustc-link-search=/home/hazer-hazer/dev/mcu/rust/rust-embedded-sketches/stm32g431-sandbox/target/thumbv7em-none-eabi/debug/build/cortex-m-rt-84ed0a0f93b50f02/out
+cargo:rerun-if-changed=build.rs
+cargo:rerun-if-changed=link.x.in
