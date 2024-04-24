@@ -45,7 +45,7 @@ use embedded_graphics::{
 mod display;
 
 const SAMPLE_RATE: u32 = 48_000;
-const BUFFER_SIZE: usize = 256;
+const AUDIO_BUFFER_SIZE: usize = 512;
 
 fn dir_tree<
     D: embedded_sdmmc::BlockDevice,
@@ -100,20 +100,20 @@ async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
 
     {
-        // https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=d52c4e1c0db51f2d128bc5a7e2640828
+        // https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=59adafc115d9d0e4238be823d8b066c8
         use embassy_stm32::rcc::*;
 
         config.rcc.pll = Some(embassy_stm32::rcc::Pll {
             // 16MHz HSI
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL96,
+            mul: PllMul::MUL92,
             divp: Some(PllPDiv::DIV2),
             divq: Some(PllQDiv::DIV2),
             divr: Some(PllRDiv::DIV2),
         });
         config.rcc.sys = Sysclk::PLL1_R;
-        config.rcc.hse = None;
+        // config.rcc.boost = true;
     }
 
     let mut p = embassy_stm32::init(config);
@@ -121,7 +121,7 @@ async fn main(_spawner: Spawner) {
     let amp = 0.5;
 
     let mut sd_spi_cfg = spi::Config::default();
-    sd_spi_cfg.frequency = Hertz::mhz(10);
+    sd_spi_cfg.frequency = Hertz::mhz(24);
     let sd_spi = spi::Spi::new(p.SPI1, p.PA5, p.PA7, p.PA6, p.DMA2, p.DMA2_CH2, sd_spi_cfg);
     let sd_spi_bus: embassy_sync::blocking_mutex::Mutex<NoopRawMutex, _> =
         embassy_sync::blocking_mutex::Mutex::new(RefCell::new(sd_spi));
@@ -161,13 +161,14 @@ async fn main(_spawner: Spawner) {
         .open_file_in_dir(wav_file_name, embedded_sdmmc::Mode::ReadOnly)
         .unwrap();
 
-    let mut file_reader: FileReader<BUFFER_SIZE, _, _, 4, 4, 1> = FileReader::new(file);
+    let mut file_reader: FileReader<1024, _, _, 4, 4, 1> = FileReader::new(file);
 
     let wav_header = WavHeader::by_file_reader(&mut file_reader).unwrap();
 
     info!("WAV Header: {:a}", wav_header);
 
-    let dma_buf = cortex_m::singleton!(: [u16; BUFFER_SIZE] = [0; BUFFER_SIZE]).unwrap();
+    let dma_buf =
+        cortex_m::singleton!(: [u16; AUDIO_BUFFER_SIZE] = [0; AUDIO_BUFFER_SIZE]).unwrap();
 
     let (sai_block_a, _) = embassy_stm32::sai::split_subblocks(p.SAI1);
     let sai_cfg =
@@ -186,24 +187,19 @@ async fn main(_spawner: Spawner) {
 
     let mut sent_count = 0;
     let mut underrun_count = 0;
-    let mut speed_bench = Instant::now();
+    // Micros last
+    let mut current_period = 0;
 
     info!(
         "SYS CLOCK FREQUENCY: {}",
         embassy_stm32::rcc::frequency::<peripherals::SYSCFG>()
     );
 
-    // let mut buf = [0; 96 * 4];
-
     // let mut sound = SimpleFormSource::infinite_stereo(
-    //     wav_header.sample_rate,
-    //     paw::audio::osc::simple_form::WaveForm::Square,
-    //     100.0,
+    //     SAMPLE_RATE,
+    //     paw::audio::osc::simple_form::WaveForm::Sine,
+    //     480.0,
     // );
-
-    sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
-
-    let freq = 2400.0;
 
     info!("Starting main loop");
     loop {
@@ -232,49 +228,66 @@ async fn main(_spawner: Spawner) {
         //     }
         // }
 
-        let mut buf = [0; BUFFER_SIZE];
-        let period = SAMPLE_RATE as f32 / freq;
-        let occupied_len = period as usize * 2;
-        // info!(
-        //     "Read {}B buffer in {:tus}:",
-        //     buf.len(),
-        //     bench_start.elapsed().as_micros()
-        // );
+        // let mut buf = [0; BUFFER_SIZE];
+        // let period = SAMPLE_RATE as f32 / FREQ;
+        // let occupied_len = period as usize * 2;
+        // // info!(
+        // //     "Read {}B buffer in {:tus}:",
+        // //     buf.len(),
+        // //     bench_start.elapsed().as_micros()
+        // // );
 
-        let mut last_val = 0;
-        for (i, s) in buf[0..occupied_len].iter_mut().enumerate() {
-            use micromath::F32Ext;
-            if i % 2 == 0 {
-                *s = ((PI2 * i as f32 / period as f32).sin() * i16::MAX as f32 * amp) as i16 as u16;
-                last_val = *s;
-            } else {
-                *s = last_val;
-            }
+        // let mut last_val = 0;
+        // for (i, s) in buf[0..occupied_len].iter_mut().enumerate() {
+        //     use micromath::F32Ext;
+        //     if i % 2 == 0 {
+        //         *s = ((PI2 * i as f32 / period as f32).sin() * i16::MAX as f32 * amp) as i16 as u16;
+        //         last_val = *s;
+        //     } else {
+        //         *s = last_val;
+        //     }
+        // }
+
+        let bench_start = Instant::now();
+
+        // let buf = file_reader.next_buf().unwrap();
+
+        let mut buf = [0; AUDIO_BUFFER_SIZE];
+        for s in buf.iter_mut() {
+            *s = file_reader.next_be().unwrap();
+            // *s = (sound.next_sample() * i16::MAX as f32) as i16 as u16;
         }
 
-        match sai.write(&buf[0..occupied_len]).await {
+        current_period += bench_start.elapsed().as_micros();
+
+        sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
+
+        match sai.write(&buf).await {
             Ok(_) => {}
             Err(_) => {
                 underrun_count += 1;
+                sai.flush();
             }
         }
 
         sent_count += 1;
 
-        let elapsed = speed_bench.elapsed().as_micros();
-        if elapsed >= 1_000_000 {
-            let secs = elapsed as f32 / 1_000_000.0;
+        if current_period >= 1_000_000 {
+            let secs = current_period as f32 / 1_000_000.0;
             println!(
-                "Sent {}/{} with underrun in last {}s",
-                underrun_count, sent_count, secs
+                "Sent {}/{} buffers ({}B) with underrun in {}s",
+                underrun_count,
+                sent_count,
+                buf.len(),
+                secs
             );
             println!(
-                "Speed: {}KB/s",
-                (sent_count * core::mem::size_of_val(&buf)) as f32 / 1_000.0 / secs
+                "Speed: {}KiB/s",
+                (sent_count * core::mem::size_of_val(&buf)) as f32 / 1_024.0 / secs
             );
             sent_count = 0;
             underrun_count = 0;
-            speed_bench = Instant::now();
+            current_period = 0;
         }
     }
 }

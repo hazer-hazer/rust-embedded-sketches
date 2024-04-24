@@ -55,7 +55,7 @@ impl WavHeader {
     where
         D: embedded_sdmmc::BlockDevice,
         T: embedded_sdmmc::TimeSource,
-        D::Error: defmt::Format,
+        D::Error: core::fmt::Debug,
     {
         let chunk_id = reader.arr()?;
         defmt::assert_eq!(
