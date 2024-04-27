@@ -6,10 +6,10 @@ use embedded_graphics::{
     transform::Transform,
     Pixel,
 };
-use micromath::F32Ext;
-use num::Saturating;
 use paw::dsp::sample::ToSample;
 use paw::{audio::source::Channel, dsp::sample::Sample};
+
+// TODO: Window value range divisor
 
 #[derive(Clone, Copy)]
 pub enum Window {
@@ -25,25 +25,29 @@ pub struct WaveWindow<const SIZE: usize, C: PixelColor> {
     buf: [i32; SIZE],
     pointer: usize,
     color: C,
+    channel_info: Channel,
+    window: Window,
 }
 
 impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
-    pub fn new(pos: Point, size: Size, color: C) -> Self {
+    pub fn new(pos: Point, size: Size, color: C, channel_info: Channel, window: Window) -> Self {
         Self {
             pos,
             size,
             buf: [0; SIZE],
             pointer: 0,
             color,
+            channel_info,
+            window,
         }
     }
 
-    pub fn load<S: Sample + ToSample<f32>>(&mut self, buf: &[S], channel: Channel, window: Window) {
+    pub fn load<S: Sample + ToSample<f32>>(&mut self, buf: &[S]) {
         if self.full() {
             self.pointer = 0;
         }
 
-        let chunk_size = match window {
+        let chunk_size = match self.window {
             Window::Full => self.buf.len(),
             Window::Half => self.buf.len() / 2,
             Window::Quarter => self.buf.len() / 4,
@@ -56,8 +60,8 @@ impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
         for chunk in buf.chunks(chunk_size).take(self.buf.len() - self.pointer) {
             let sum = chunk
                 .iter()
-                .skip(channel.channel)
-                .step_by(channel.count)
+                .skip(self.channel_info.channel)
+                .step_by(self.channel_info.count)
                 .copied()
                 .fold(0.0, |sum, s| {
                     let sample = ToSample::<f32>::to_sample(s);

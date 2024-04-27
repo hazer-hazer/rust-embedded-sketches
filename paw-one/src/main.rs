@@ -73,13 +73,13 @@ const SINGLE_CHANNEL_BUFFER_SIZE: usize = AUDIO_BUFFER_SIZE / CHANNELS_COUNT;
 async fn main(_spawner: Spawner) {
     info!("Program entered");
 
-    unsafe { init_global_heap() };
-    {
-        let mut vec = alloc::vec![1, 2, 3, 4, 5];
-        vec.push(1);
-        vec.pop();
-        info!("HEAP Check with vector ran successfully");
-    }
+    // unsafe { init_global_heap() };
+    // {
+    //     let mut vec = alloc::vec![1, 2, 3, 4, 5];
+    //     vec.push(1);
+    //     vec.pop();
+    //     info!("HEAP Check with vector ran successfully");
+    // }
 
     let mut config = embassy_stm32::Config::default();
 
@@ -354,14 +354,7 @@ async fn main(_spawner: Spawner) {
         //     }
         // }
 
-        wave_window.load(
-            &buf,
-            Channel {
-                channel: 0,
-                count: 2,
-            },
-            Window::Quarter,
-        );
+        wave_window.load(&buf);
         if wave_window.full() {
             display
                 .fill_solid(&WAVE_WINDOW_AREA, BinaryColor::Off)
