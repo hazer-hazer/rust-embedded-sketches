@@ -9,6 +9,8 @@ pub mod audio;
 pub mod heap;
 pub mod wav;
 pub mod sd;
+pub mod ui;
+pub mod flash;
 
 use cortex_m_semihosting::debug;
 // use panic_halt as _;

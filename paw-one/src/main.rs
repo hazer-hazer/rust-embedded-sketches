@@ -1,11 +1,14 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
 extern crate paw_one;
 
 use defmt::*;
+use display_interface_spi::SPIInterface;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
+use embedded_graphics_framebuf::FrameBuf;
 use embedded_sdmmc::ShortFileName;
 use embedded_text::{
     alignment::HorizontalAlignment,
@@ -13,10 +16,20 @@ use embedded_text::{
     TextBox,
 };
 use paw::{
-    audio::{osc::simple_form::SimpleFormSource, source::AudioSourceIter},
+    audio::{
+        osc::simple_form::SimpleFormSource,
+        source::{AudioSourceIter, Channel},
+    },
     dsp::math::PI2,
 };
-use paw_one::{sd::FileReader, wav::WavHeader};
+use paw_one::{
+    heap::init_global_heap,
+    sd::FileReader,
+    ui::audio::{WaveWindow, Window},
+    wav::WavHeader,
+};
+
+use crate::display::fps::FPS;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -27,7 +40,7 @@ use embassy_stm32::{
     dac::{self, Dac, DacCh1, DacDma2},
     dma::{self, NoDma},
     gpio::Output,
-    i2c::I2c,
+    i2c::{self, I2c},
     peripherals,
     rcc::mux::ClockMux,
     spi,
@@ -35,67 +48,38 @@ use embassy_stm32::{
 };
 use embedded_graphics::{
     mock_display::ColorMapping,
-    mono_font::{ascii::FONT_6X10, MonoTextStyle, MonoTextStyleBuilder},
+    mono_font::{self, ascii::FONT_6X10, MonoFont, MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::{BinaryColor, Rgb565},
     prelude::*,
-    primitives::Rectangle,
-    text::Text,
+    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
+    text::{renderer::CharacterStyle, Alignment, Text},
 };
+use ssd1306::prelude::*;
 
 mod display;
 
-const SAMPLE_RATE: u32 = 48_000;
-const AUDIO_BUFFER_SIZE: usize = 512;
+bind_interrupts!(struct Irqs {
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+});
 
-fn dir_tree<
-    D: embedded_sdmmc::BlockDevice,
-    T: embedded_sdmmc::TimeSource,
-    const MAX_DIRS: usize,
-    const MAX_FILES: usize,
-    const MAX_VOLUMES: usize,
->(
-    mut dir: embedded_sdmmc::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    indent: usize,
-) {
-    let mut children = heapless::Vec::<ShortFileName, 16>::new();
-    dir.iterate_dir(|e| {
-        info!(
-            "- {} {:a} {} {}B",
-            if e.attributes.is_directory() {
-                "<DIR>"
-            } else if e.attributes.is_system() {
-                "<SYS>"
-            } else if e.attributes.is_volume() {
-                "<VOL>"
-            } else if e.attributes.is_lfn() {
-                "<LFN>"
-            } else if e.attributes.is_hidden() {
-                "<HID>"
-            } else {
-                ""
-            },
-            e.name,
-            e.mtime,
-            e.size
-        );
-
-        if e.attributes.is_directory()
-            && e.name != embedded_sdmmc::ShortFileName::parent_dir()
-            && e.name != embedded_sdmmc::ShortFileName::this_dir()
-        {
-            children.push(e.name.clone()).unwrap();
-        }
-    })
-    .unwrap();
-    for child_name in children {
-        let child_dir = dir.open_dir(&child_name).unwrap();
-        dir_tree(child_dir, indent + 2);
-    }
-}
+const SAMPLE_RATE: u32 = 96_000;
+const BIT_DEPTH: u8 = 32;
+const CHANNELS_COUNT: usize = 2;
+const AUDIO_BUFFER_SIZE: usize = 256;
+const SINGLE_CHANNEL_BUFFER_SIZE: usize = AUDIO_BUFFER_SIZE / CHANNELS_COUNT;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     info!("Program entered");
+
+    unsafe { init_global_heap() };
+    {
+        let mut vec = alloc::vec![1, 2, 3, 4, 5];
+        vec.push(1);
+        vec.pop();
+        info!("HEAP Check with vector ran successfully");
+    }
 
     let mut config = embassy_stm32::Config::default();
 
@@ -116,151 +100,222 @@ async fn main(_spawner: Spawner) {
         // config.rcc.boost = true;
     }
 
-    let mut p = embassy_stm32::init(config);
-
-    let amp = 0.5;
-
-    let mut sd_spi_cfg = spi::Config::default();
-    sd_spi_cfg.frequency = Hertz::mhz(24);
-    let sd_spi = spi::Spi::new(p.SPI1, p.PA5, p.PA7, p.PA6, p.DMA2, p.DMA2_CH2, sd_spi_cfg);
-    let sd_spi_bus: embassy_sync::blocking_mutex::Mutex<NoopRawMutex, _> =
-        embassy_sync::blocking_mutex::Mutex::new(RefCell::new(sd_spi));
-    let sd_spi_device = embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice::new(
-        &sd_spi_bus,
-        embedded_sdmmc::sdcard::DummyCsPin,
-    );
-    let sd_card = embedded_sdmmc::sdcard::SdCard::new(
-        sd_spi_device,
-        Output::new(
-            p.PA4,
-            embassy_stm32::gpio::Level::High,
-            embassy_stm32::gpio::Speed::High,
-        ),
-        embassy_time::Delay,
-    );
-
-    struct TimeSourceStub;
-    impl embedded_sdmmc::TimeSource for TimeSourceStub {
-        fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
-            embedded_sdmmc::Timestamp::from_calendar(2000, 7, 16, 0, 0, 0).unwrap()
-        }
-    }
-
-    let time_source = TimeSourceStub;
-
-    let mut volume_manager = embedded_sdmmc::VolumeManager::new(sd_card, time_source);
-
-    let mut volume = volume_manager
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
-        .unwrap();
-    let mut root_dir = volume.open_root_dir().unwrap();
-    // dir_tree(root_dir, 0);
-
-    let wav_file_name = "NIRVANA.WAV";
-    let file = root_dir
-        .open_file_in_dir(wav_file_name, embedded_sdmmc::Mode::ReadOnly)
-        .unwrap();
-
-    let mut file_reader: FileReader<1024, _, _, 4, 4, 1> = FileReader::new(file);
-
-    let wav_header = WavHeader::by_file_reader(&mut file_reader).unwrap();
-
-    info!("WAV Header: {:a}", wav_header);
-
-    let dma_buf =
-        cortex_m::singleton!(: [u16; AUDIO_BUFFER_SIZE] = [0; AUDIO_BUFFER_SIZE]).unwrap();
-
-    let (sai_block_a, _) = embassy_stm32::sai::split_subblocks(p.SAI1);
-    let sai_cfg =
-        paw_one::audio::sai::Sai::cfg_i2s(wav_header.sample_rate, wav_header.bits_per_sample as u8);
-
-    let mut sai = embassy_stm32::sai::Sai::new_asynchronous_with_mclk(
-        sai_block_a,
-        p.PA8,
-        p.PA10,
-        p.PA9,
-        p.PA3,
-        p.DMA1_CH1,
-        dma_buf,
-        sai_cfg,
-    );
-
-    let mut sent_count = 0;
-    let mut underrun_count = 0;
-    // Micros last
-    let mut current_period = 0;
+    let p = embassy_stm32::init(config);
 
     info!(
         "SYS CLOCK FREQUENCY: {}",
         embassy_stm32::rcc::frequency::<peripherals::SYSCFG>()
     );
 
-    // let mut sound = SimpleFormSource::infinite_stereo(
-    //     SAMPLE_RATE,
-    //     paw::audio::osc::simple_form::WaveForm::Sine,
-    //     480.0,
+    // let mut w25q = {
+    //     let mut w25q_spi_cfg = spi::Config::default();
+    //     w25q_spi_cfg.frequency = Hertz::mhz(50);
+    //     let w25q_spi = spi::Spi::new(
+    //         p.SPI2,
+    //         p.PB13,
+    //         p.PB15,
+    //         p.PB14,
+    //         p.DMA1_CH3,
+    //         p.DMA1_CH4,
+    //         w25q_spi_cfg,
+    //     );
+
+    //     info!(
+    //         "Configured SPI2 to {}Hz",
+    //         w25q_spi.get_current_config().frequency
+    //     );
+
+    //     let mut w25q = w25q::series25::Flash::init(
+    //         w25q_spi,
+    //         Output::new(
+    //             p.PB12,
+    //             embassy_stm32::gpio::Level::Low,
+    //             embassy_stm32::gpio::Speed::High,
+    //         ),
+    //     )
+    //     .unwrap();
+
+    //     info!(
+    //         "W25Q Capacity: {}KB",
+    //         w25q.get_device_info().unwrap().capacity_kb
+    //     );
+
+    //     w25q
+    // };
+
+    // ST7789 without CS
+    // let mut display = {
+    //     let mut display_spi_cfg = spi::Config::default();
+    //     display_spi_cfg.frequency = Hertz::mhz(50);
+    //     display_spi_cfg.mode = spi::MODE_2;
+    //     let display_spi = spi::Spi::new_txonly(
+    //         p.SPI1,
+    //         p.PA5,
+    //         p.PA7,
+    //         p.DMA2_CH1,
+    //         p.DMA2_CH2,
+    //         display_spi_cfg,
+    //     );
+
+    //     info!(
+    //         "Configured SPI1 to {}MHz",
+    //         display_spi.get_current_config().frequency.0 as f32 / 1e6
+    //     );
+
+    //     let display_interface = display_interface_spi::SPIInterfaceNoCS::new(
+    //         display_spi,
+    //         Output::new(
+    //             p.PA6,
+    //             embassy_stm32::gpio::Level::Low,
+    //             embassy_stm32::gpio::Speed::VeryHigh,
+    //         ),
+    //     );
+
+    //     let mut display = mipidsi::Builder::st7789(display_interface)
+    //         .with_display_size(240, 240)
+    //         .with_invert_colors(mipidsi::ColorInversion::Inverted)
+    //         .init(
+    //             &mut embassy_time::Delay,
+    //             Some(Output::new(
+    //                 p.PA4,
+    //                 embassy_stm32::gpio::Level::High,
+    //                 embassy_stm32::gpio::Speed::Low,
+    //             )),
+    //         )
+    //         .unwrap();
+
+    //     display.clear(Rgb565::RED).unwrap();
+    //     display
+    // };
+
+    let mut display = {
+        let display_i2c_cfg = i2c::Config::default();
+        let display_i2c = i2c::I2c::new(
+            p.I2C1,
+            p.PA15,
+            p.PB7,
+            Irqs,
+            NoDma,
+            NoDma,
+            Hertz::mhz(1),
+            display_i2c_cfg,
+        );
+
+        let di = ssd1306::I2CDisplayInterface::new(display_i2c);
+        let mut display = ssd1306::Ssd1306::new(
+            di,
+            ssd1306::size::DisplaySize128x32,
+            ssd1306::rotation::DisplayRotation::Rotate0,
+        )
+        .into_buffered_graphics_mode();
+        display.init().unwrap();
+
+        info!("Initialized SSD1306 display");
+
+        display
+    };
+
+    display
+        .bounding_box()
+        .draw_styled(
+            &PrimitiveStyle::with_stroke(BinaryColor::On, 1),
+            &mut display,
+        )
+        .unwrap();
+
+    display.flush().unwrap();
+
+    let mut sai = {
+        let sai_dma_buf =
+            cortex_m::singleton!(: [u32; AUDIO_BUFFER_SIZE] = [0; AUDIO_BUFFER_SIZE]).unwrap();
+
+        let (sai_block_a, _) = embassy_stm32::sai::split_subblocks(p.SAI1);
+        let sai_cfg = paw_one::audio::sai::Sai::cfg_i2s(SAMPLE_RATE, BIT_DEPTH);
+
+        let sai = embassy_stm32::sai::Sai::new_asynchronous_with_mclk(
+            sai_block_a,
+            p.PA8,
+            p.PA10,
+            p.PA9,
+            p.PA3,
+            p.DMA1_CH1,
+            sai_dma_buf,
+            sai_cfg,
+        );
+
+        sai
+    };
+
+    let mut sound = SimpleFormSource::infinite_stereo(
+        SAMPLE_RATE,
+        paw::audio::osc::simple_form::WaveForm::Sine,
+        480.0,
+    );
+
+    display
+        .bounding_box()
+        .draw_styled(
+            &PrimitiveStyle::with_stroke(BinaryColor::On, 1),
+            &mut display,
+        )
+        .unwrap();
+
+    display.flush().unwrap();
+
+    // let fbuf_data =
+    //     [Rgb565::BLACK; WAVE_WINDOW_SIZE.width as usize * WAVE_WINDOW_SIZE.height as usize];
+    // let mut fbuf = FrameBuf::new(
+    //     fbuf_data,
+    //     WAVE_WINDOW_SIZE.width as usize,
+    //     WAVE_WINDOW_SIZE.height as usize,
     // );
+    // let fbuf_area = Rectangle::new(Point::new(0, 0), fbuf.size());
+
+    const FPS_FONT: MonoFont = mono_font::ascii::FONT_4X6;
+
+    let mut fps = FPS::new();
+
+    let fps_text_style = MonoTextStyleBuilder::new()
+        .background_color(BinaryColor::Off)
+        .text_color(BinaryColor::On)
+        .font(&FPS_FONT)
+        .build();
+    let fps_bounds_size = Size::new(
+        FPS_FONT.character_size.width * 10 as u32,
+        FPS_FONT.character_size.height,
+    );
+    let fps_bounds = Rectangle::new(
+        Point::new(
+            0,
+            (display.bounding_box().size.height - fps_bounds_size.height) as i32,
+        ),
+        fps_bounds_size,
+    );
+
+    let mut sai_sent_count = 0;
+    let mut underrun_count = 0;
+    let mut last_bench = Instant::now();
+    // Micros spent sending SAI data
+    let mut sai_time = 0;
+
+    let mut fps_time = Instant::now();
+
+    const WAVE_WINDOW_POS: Point = Point::new(0, 0);
+    const WAVE_WINDOW_SIZE: Size = Size::new(128, 32);
+    const WAVE_WINDOW_AREA: Rectangle = Rectangle::new(WAVE_WINDOW_POS, WAVE_WINDOW_SIZE);
+    let mut wave_window =
+        WaveWindow::<128, _>::new(WAVE_WINDOW_POS, WAVE_WINDOW_SIZE, BinaryColor::On);
+
+    sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
 
     info!("Starting main loop");
     loop {
-        // for freq in notes {
-        //     // sound.set_freq(freq);
-        //     let period = SAMPLE_RATE as f32 / freq;
-        //     let occupied_len = period as usize * 2;
-        //     // Buffer size of 512 gives us clear minimum of 93.75Hz, but 256 -> 187.5Hz (not enough)
-        //     // But we always have two channels, thus the real count of samples is divided by 2.
-        //     let mut sine = [0; BUFFER_SIZE];
-        //     let mut last_val = 0;
-        //     defmt::assert!(sine.len() >= occupied_len);
-        //     for (i, s) in sine[0..occupied_len].iter_mut().enumerate() {
-        //         use micromath::F32Ext;
-        //         if i % 2 == 0 {
-        //             *s = ((PI2 * i as f32 / period as f32).sin() * i32::MAX as f32 * amp) as i32
-        //                 as u32;
-        //             last_val = *s;
-        //         } else {
-        //             *s = last_val;
-        //         }
-        //     }
-        //     // defmt::assert!(sine[0] == 0 && sine[occupied_len - 1] == 0);
-        //     for _ in 0..repeat {
-        //         sai.write(&sine[0..occupied_len]).await.unwrap();
-        //     }
-        // }
-
-        // let mut buf = [0; BUFFER_SIZE];
-        // let period = SAMPLE_RATE as f32 / FREQ;
-        // let occupied_len = period as usize * 2;
-        // // info!(
-        // //     "Read {}B buffer in {:tus}:",
-        // //     buf.len(),
-        // //     bench_start.elapsed().as_micros()
-        // // );
-
-        // let mut last_val = 0;
-        // for (i, s) in buf[0..occupied_len].iter_mut().enumerate() {
-        //     use micromath::F32Ext;
-        //     if i % 2 == 0 {
-        //         *s = ((PI2 * i as f32 / period as f32).sin() * i16::MAX as f32 * amp) as i16 as u16;
-        //         last_val = *s;
-        //     } else {
-        //         *s = last_val;
-        //     }
-        // }
-
         let bench_start = Instant::now();
-
-        // let buf = file_reader.next_buf().unwrap();
 
         let mut buf = [0; AUDIO_BUFFER_SIZE];
         for s in buf.iter_mut() {
-            *s = file_reader.next_be().unwrap();
-            // *s = (sound.next_sample() * i16::MAX as f32) as i16 as u16;
+            *s = (sound.next_sample() * i32::MAX as f32) as i32 as u32;
         }
-
-        current_period += bench_start.elapsed().as_micros();
-
-        sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
 
         match sai.write(&buf).await {
             Ok(_) => {}
@@ -270,24 +325,86 @@ async fn main(_spawner: Spawner) {
             }
         }
 
-        sent_count += 1;
+        sai_time += bench_start.elapsed().as_micros();
 
-        if current_period >= 1_000_000 {
-            let secs = current_period as f32 / 1_000_000.0;
+        sai_sent_count += 1;
+
+        // if wave_window_captured >= wave_window_data.len() {
+        //     display
+        //         .fill_solid(&WAVE_WINDOW_AREA, BinaryColor::Off)
+        //         .unwrap();
+        //     WaveWindow::new(
+        //         WAVE_WINDOW_AREA.top_left,
+        //         WAVE_WINDOW_AREA.size,
+        //         &wave_window_data,
+        //         0,
+        //         BinaryColor::On,
+        //     )
+        //     .draw(&mut display)
+        //     .unwrap();
+
+        //     display.flush().unwrap();
+
+        //     wave_window_captured = 0;
+        // } else {
+        //     for i in 0..WAVE_WINDOW_CAPTURE_VALUES {
+        //         wave_window_data[wave_window_captured] =
+        //             buf[buf.len() - buf.len() / (i * CHANNELS_COUNT + 1)];
+        //         wave_window_captured += 1;
+        //     }
+        // }
+
+        wave_window.load(
+            &buf,
+            Channel {
+                channel: 0,
+                count: 2,
+            },
+            Window::Quarter,
+        );
+        if wave_window.full() {
+            display
+                .fill_solid(&WAVE_WINDOW_AREA, BinaryColor::Off)
+                .unwrap();
+            wave_window.draw(&mut display).unwrap();
+            display.flush().unwrap();
+        }
+
+        if last_bench.elapsed().as_micros() >= 1_000_000 {
+            use micromath::F32Ext;
+
+            let mut fps_text = heapless::String::<100>::new();
+            core::write!(fps_text, "{}FPS", fps.value().round() as u32).unwrap();
+            TextBox::with_alignment(
+                &fps_text,
+                fps_bounds,
+                fps_text_style,
+                HorizontalAlignment::Left,
+            )
+            .draw(&mut display)
+            .unwrap();
+
+            display.flush().unwrap();
+
+            let sai_time_secs = sai_time as f32 / 1e6;
+
             println!(
                 "Sent {}/{} buffers ({}B) with underrun in {}s",
                 underrun_count,
-                sent_count,
+                sai_sent_count,
                 buf.len(),
-                secs
+                sai_time_secs,
             );
             println!(
-                "Speed: {}KiB/s",
-                (sent_count * core::mem::size_of_val(&buf)) as f32 / 1_024.0 / secs
+                "SAI speed: {}KiB/s",
+                (sai_sent_count as usize * core::mem::size_of_val(&buf)) as f32
+                    / sai_time_secs
+                    / 1_024.0
             );
-            sent_count = 0;
+            sai_sent_count = 0;
             underrun_count = 0;
-            current_period = 0;
+            sai_time = 0;
+            last_bench = Instant::now();
         }
     }
 }

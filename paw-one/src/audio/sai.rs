@@ -55,7 +55,7 @@ impl Sai {
         //     96_000 => sai::MasterClockDivider::Div25,
         //     _ => panic!("Unsupported sample rate {}", sample_rate),
         // };
-        sai_cfg.master_clock_divider = sai::MasterClockDivider::Div12;
+        sai_cfg.master_clock_divider = sai::MasterClockDivider::Div6;
 
         info!(
             "Make SAI Config: base clock frequency={}, bit_depth={}, sample_rate={}",

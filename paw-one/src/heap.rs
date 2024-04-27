@@ -4,10 +4,11 @@ use embedded_alloc::Heap;
 pub static HEAP: Heap = Heap::empty();
 
 pub unsafe fn init_global_heap() {
-    const HEAP_SIZE: usize = 1_000;
+    const HEAP_SIZE: usize = 32768;
     defmt::debug!("Allocate heap of {} bytes", HEAP_SIZE);
     use core::mem::MaybeUninit;
-    static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    // Of course HEAP_MEM is mutable, but declaring it as immutable compiler will place it in FLASH memory
+    static HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
 }
 

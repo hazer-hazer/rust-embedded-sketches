@@ -4,3 +4,4 @@ pub mod filter;
 pub mod interpolator;
 pub mod math;
 pub mod resampler;
+pub mod sample;

@@ -5,6 +5,14 @@ use core::{iter::Iterator, time::Duration};
 
 use micromath::F32Ext as _;
 
+use crate::dsp::sample::Sample;
+
+#[derive(Clone, Copy)]
+pub struct Channel {
+    pub count: usize,
+    pub channel: usize,
+}
+
 #[derive(Clone, Copy)]
 pub struct AudioSourceDuration {
     total: Duration,
@@ -28,49 +36,49 @@ impl AudioSourceDuration {
     }
 }
 
-pub trait Sample: Clone + Copy {
-    fn lerp(self, to: Self, f: f32) -> Self;
-    fn zero() -> Self;
-    fn saturating_add(self, rhs: Self) -> Self;
-    fn amplify(self, amount: f32) -> Self;
-    fn remap_int_range(self, from: i32, to: i32) -> i32;
-    fn remap_uint_range(self, from: u32, to: u32) -> u32;
-}
+// pub trait Sample: Clone + Copy {
+//     fn lerp(self, to: Self, f: f32) -> Self;
+//     fn zero() -> Self;
+//     fn saturating_add(self, rhs: Self) -> Self;
+//     fn amplify(self, amount: f32) -> Self;
+//     fn remap_int_range(self, from: i32, to: i32) -> i32;
+//     fn remap_uint_range(self, from: u32, to: u32) -> u32;
+// }
 
-impl Sample for f32 {
-    fn lerp(self, to: Self, f: f32) -> Self {
-        self * (1.0 - f) + (to * f)
-    }
+// impl Sample for f32 {
+//     // fn lerp(self, to: Self, f: f32) -> Self {
+//     //     self * (1.0 - f) + (to * f)
+//     // }
 
-    fn zero() -> Self {
-        0f32
-    }
+//     // fn zero() -> Self {
+//     //     0f32
+//     // }
 
-    fn saturating_add(self, rhs: Self) -> Self {
-        let sum = self + rhs;
-        if sum < -1.0 {
-            -1.0
-        } else if sum > 1.0 {
-            1.0
-        } else {
-            sum
-        }
-    }
+//     // fn saturating_add(self, rhs: Self) -> Self {
+//     //     let sum = self + rhs;
+//     //     if sum < -1.0 {
+//     //         -1.0
+//     //     } else if sum > 1.0 {
+//     //         1.0
+//     //     } else {
+//     //         sum
+//     //     }
+//     // }
 
-    fn amplify(self, amount: f32) -> Self {
-        self * amount
-    }
+//     // fn amplify(self, amount: f32) -> Self {
+//     //     self * amount
+//     // }
 
-    fn remap_int_range(self, from: i32, to: i32) -> i32 {
-        assert!(from <= to);
-        (self * (to - from) as f32) as i32 + from
-    }
+//     // fn remap_int_range(self, from: i32, to: i32) -> i32 {
+//     //     assert!(from <= to);
+//     //     (self * (to - from) as f32) as i32 + from
+//     // }
 
-    fn remap_uint_range(self, from: u32, to: u32) -> u32 {
-        assert!(from <= to);
-        ((self + 1.0) * (to - from) as f32 / 2.0).round() as u32 + from
-    }
-}
+//     // fn remap_uint_range(self, from: u32, to: u32) -> u32 {
+//     //     assert!(from <= to);
+//     //     ((self + 1.0) * (to - from) as f32 / 2.0).round() as u32 + from
+//     // }
+// }
 
 pub trait AudioSource: AudioSourceIter
 where

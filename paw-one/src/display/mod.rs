@@ -5,7 +5,6 @@ use embedded_hal_1::{
 };
 
 pub mod fps;
-// pub mod st7735;
 
 // pub struct SPIDeviceInterface<SPI, DC> {
 //     spi: SPI,
