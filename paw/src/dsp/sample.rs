@@ -94,8 +94,6 @@ pub trait Sample:
     // fn invert(self) -> Self::Signed {
     //     Self::Signed::EQUILIBRIUM.saturating_sub(self.to_signed())
     // }
-
-    fn points() -> usize;
 }
 
 macro_rules! impl_sample {
@@ -112,10 +110,6 @@ macro_rules! impl_sample {
                 const LOW: Self = $low;
                 const EQUILIBRIUM: Self = $eq;
                 const HIGH: Self = $high;
-
-                fn points() -> usize {
-                    (Self::max_value() - Self::min_value()) as usize
-                }
             }
 
             $(

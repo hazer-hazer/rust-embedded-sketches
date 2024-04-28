@@ -21,13 +21,9 @@ use paw::{
         source::{AudioSourceIter, Channel},
     },
     dsp::math::PI2,
+    ui::audio::wave_window::{WaveWindow, Window},
 };
-use paw_one::{
-    heap::init_global_heap,
-    sd::FileReader,
-    ui::audio::{WaveWindow, Window},
-    wav::WavHeader,
-};
+use paw_one::{heap::init_global_heap, sd::FileReader, wav::WavHeader};
 
 use crate::display::fps::FPS;
 
@@ -303,8 +299,13 @@ async fn main(_spawner: Spawner) {
     const WAVE_WINDOW_POS: Point = Point::new(0, 0);
     const WAVE_WINDOW_SIZE: Size = Size::new(128, 32);
     const WAVE_WINDOW_AREA: Rectangle = Rectangle::new(WAVE_WINDOW_POS, WAVE_WINDOW_SIZE);
-    let mut wave_window =
-        WaveWindow::<128, _>::new(WAVE_WINDOW_POS, WAVE_WINDOW_SIZE, BinaryColor::On);
+    let mut wave_window = WaveWindow::<128, _>::new(
+        WAVE_WINDOW_POS,
+        WAVE_WINDOW_SIZE,
+        BinaryColor::On,
+        Channel::stereo_first(),
+        Window::Half,
+    );
 
     sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
 

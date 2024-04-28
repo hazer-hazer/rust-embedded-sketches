@@ -28,7 +28,6 @@ const DEFAULT_LPF_ORDER: u8 = 71;
 pub struct Resampler {
     from_rate: u32,
     to_rate: u32,
-    // TODO
     mode: InterpolationMode,
     tension: f32,
     sinc_filter_size: usize,
@@ -92,9 +91,6 @@ impl Resampler {
                 .map(|index| interpolator.interpolate(index, samples))
                 .collect();
         }
-
-        // TODO: DepthInterpolator class?
-        // let depth_resampled: Vec<O> = resampled.into_iter().map(|sample| sample.remap()).collect();
 
         resampled
     }

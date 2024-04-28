@@ -3,14 +3,31 @@ pub mod zero;
 
 use core::{iter::Iterator, time::Duration};
 
-use micromath::F32Ext as _;
-
 use crate::dsp::sample::Sample;
 
 #[derive(Clone, Copy)]
 pub struct Channel {
     pub count: usize,
     pub channel: usize,
+}
+
+impl Channel {
+    pub fn new(count: usize, channel: usize) -> Self {
+        assert!(count > 0 && channel < count - 1);
+        Self { count, channel }
+    }
+
+    pub fn stereo(channel: usize) -> Self {
+        Self::new(2, channel)
+    }
+
+    pub fn stereo_first() -> Self {
+        Self::new(2, 0)
+    }
+
+    pub fn mono() -> Self {
+        Self::new(1, 0)
+    }
 }
 
 #[derive(Clone, Copy)]
