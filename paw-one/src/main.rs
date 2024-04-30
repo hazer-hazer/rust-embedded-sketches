@@ -5,50 +5,36 @@ extern crate alloc;
 extern crate paw_one;
 
 use defmt::*;
-use display_interface_spi::SPIInterface;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics_framebuf::FrameBuf;
-use embedded_sdmmc::ShortFileName;
-use embedded_text::{
-    alignment::HorizontalAlignment,
-    style::{HeightMode, TextBoxStyleBuilder},
-    TextBox,
-};
+use embassy_time::Instant;
+use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use paw::{
     audio::{
         osc::simple_form::SimpleFormSource,
         source::{AudioSourceIter, Channel},
     },
-    dsp::math::PI2,
     ui::audio::wave_window::{WaveWindow, Window},
 };
-use paw_one::{heap::init_global_heap, sd::FileReader, wav::WavHeader};
 
 use crate::display::fps::FPS;
 
 use {defmt_rtt as _, panic_probe as _};
 
-use core::{cell::RefCell, fmt::Write};
+use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts,
-    dac::{self, Dac, DacCh1, DacDma2},
-    dma::{self, NoDma},
-    gpio::Output,
-    i2c::{self, I2c},
+    dac::{self, Dac, DacCh1},
+    dma::NoDma,
+    i2c,
+    pac::timer::vals::Mms,
     peripherals,
-    rcc::mux::ClockMux,
-    spi,
     time::Hertz,
 };
 use embedded_graphics::{
-    mock_display::ColorMapping,
-    mono_font::{self, ascii::FONT_6X10, MonoFont, MonoTextStyle, MonoTextStyleBuilder},
-    pixelcolor::{BinaryColor, Rgb565},
+    mono_font::{self, MonoFont, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    text::{renderer::CharacterStyle, Alignment, Text},
 };
 use ssd1306::prelude::*;
 
@@ -191,8 +177,8 @@ async fn main(_spawner: Spawner) {
             p.PA15,
             p.PB7,
             Irqs,
-            NoDma,
-            NoDma,
+            p.DMA1_CH3,
+            p.DMA1_CH4,
             Hertz::mhz(1),
             display_i2c_cfg,
         );
@@ -220,6 +206,33 @@ async fn main(_spawner: Spawner) {
         .unwrap();
 
     display.flush().unwrap();
+
+    let mut dac = {
+        let mut dac = DacCh1::new(p.DAC3, p.DMA1_CH5, p.PA4);
+        dac.set_trigger(dac::TriggerSel::Tim6);
+        dac.set_triggering(true);
+        dac.enable();
+
+        info!(
+            "TIM6 Frequency: {}",
+            embassy_stm32::rcc::frequency::<peripherals::TIM6>()
+        );
+
+        let reload = (embassy_stm32::rcc::frequency::<peripherals::TIM6>().0 / 48000)
+            / AUDIO_BUFFER_SIZE as u32;
+
+        let tim = embassy_stm32::timer::low_level::Timer::new(p.TIM6);
+        tim.regs_basic()
+            .arr()
+            .modify(|w| w.set_arr(reload as u16 - 1));
+        tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+        tim.regs_basic().cr1().modify(|w| {
+            w.set_opm(false);
+            w.set_cen(true);
+        });
+
+        dac
+    };
 
     let mut sai = {
         let sai_dma_buf =
@@ -287,6 +300,8 @@ async fn main(_spawner: Spawner) {
         ),
         fps_bounds_size,
     );
+    let mut fps_time = Instant::now();
+    let mut fps_text = heapless::String::<100>::new();
 
     let mut sai_sent_count = 0;
     let mut underrun_count = 0;
@@ -294,23 +309,25 @@ async fn main(_spawner: Spawner) {
     // Micros spent sending SAI data
     let mut sai_time = 0;
 
-    let mut fps_time = Instant::now();
-
     const WAVE_WINDOW_POS: Point = Point::new(0, 0);
-    const WAVE_WINDOW_SIZE: Size = Size::new(128, 32);
+    const WAVE_WINDOW_SIZE: Size = Size::new(128, 16);
     const WAVE_WINDOW_AREA: Rectangle = Rectangle::new(WAVE_WINDOW_POS, WAVE_WINDOW_SIZE);
     let mut wave_window = WaveWindow::<128, _>::new(
         WAVE_WINDOW_POS,
         WAVE_WINDOW_SIZE,
         BinaryColor::On,
         Channel::stereo_first(),
-        Window::Half,
+        Window::Sixteen,
     );
 
     sai.start(); // NOTE: `start` JUST BEFORE FIRST `write`!!!
 
     info!("Starting main loop");
     loop {
+        dac.trigger();
+        dac.write(dac::ValueArray::Bit8(&[0, 0xf, 0xff]), true)
+            .await;
+
         let bench_start = Instant::now();
 
         let mut buf = [0; AUDIO_BUFFER_SIZE];
@@ -361,24 +378,12 @@ async fn main(_spawner: Spawner) {
                 .fill_solid(&WAVE_WINDOW_AREA, BinaryColor::Off)
                 .unwrap();
             wave_window.draw(&mut display).unwrap();
-            display.flush().unwrap();
         }
 
         if last_bench.elapsed().as_micros() >= 1_000_000 {
             use micromath::F32Ext;
-
-            let mut fps_text = heapless::String::<100>::new();
+            fps_text.clear();
             core::write!(fps_text, "{}FPS", fps.value().round() as u32).unwrap();
-            TextBox::with_alignment(
-                &fps_text,
-                fps_bounds,
-                fps_text_style,
-                HorizontalAlignment::Left,
-            )
-            .draw(&mut display)
-            .unwrap();
-
-            display.flush().unwrap();
 
             let sai_time_secs = sai_time as f32 / 1e6;
 
@@ -400,5 +405,16 @@ async fn main(_spawner: Spawner) {
             sai_time = 0;
             last_bench = Instant::now();
         }
+
+        TextBox::with_alignment(
+            &fps_text,
+            fps_bounds,
+            fps_text_style,
+            HorizontalAlignment::Left,
+        )
+        .draw(&mut display)
+        .unwrap();
+
+        display.flush().unwrap();
     }
 }

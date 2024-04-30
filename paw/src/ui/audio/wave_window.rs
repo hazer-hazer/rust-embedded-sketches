@@ -16,6 +16,12 @@ pub enum Window {
     Full,
     Half,
     Quarter,
+    Each,
+    Two,
+    Four,
+    Eight,
+    Sixteen,
+    ThirtyTwo,
     Other(usize),
 }
 
@@ -42,7 +48,7 @@ impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
         }
     }
 
-    pub fn load<S: Sample + ToSample<i32>>(&mut self, buf: &[S]) {
+    pub fn load<S: Sample + ToSample<f32>>(&mut self, buf: &[S]) {
         if self.full() {
             self.pointer = 0;
         }
@@ -51,28 +57,36 @@ impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
             Window::Full => self.buf.len(),
             Window::Half => self.buf.len() / 2,
             Window::Quarter => self.buf.len() / 4,
+            Window::Each => 1,
+            Window::Two => 2,
+            Window::Four => 4,
+            Window::Eight => 8,
+            Window::Sixteen => 16,
+            Window::ThirtyTwo => 32,
             Window::Other(chunk_size) => chunk_size,
         };
 
-        for chunk in buf.chunks(chunk_size).take(self.buf.len() - self.pointer) {
-            let avg = chunk
+        let avg_size = chunk_size as f32;
+        let half_height = self.size.height as f32 / 2.0;
+
+        for chunk in buf[self.channel_info.channel..]
+            .chunks(chunk_size)
+            .take(self.buf.len() - self.pointer)
+        {
+            let sum = chunk
                 .iter()
-                .skip(self.channel_info.channel)
                 .step_by(self.channel_info.count)
                 .copied()
-                .fold(0, |sum, s| {
-                    let sample = ToSample::<i32>::to_sample(s);
-                    sum / 2
-                        + (sample
-                            + if sample < i32::EQUILIBRIUM {
-                                i32::HIGH
-                            } else {
-                                i32::LOW
-                            })
-                            / 2
+                .fold(0.0, |sum, s| {
+                    let sample = ToSample::<f32>::to_sample(s);
+                    sum + if sample < 0.0 {
+                        sample + 1.0
+                    } else {
+                        sample - 1.0
+                    }
                 });
 
-            self.buf[self.pointer] = avg;
+            self.buf[self.pointer] = (sum / avg_size * half_height + half_height) as i32;
             self.pointer += 1;
         }
     }
@@ -90,18 +104,10 @@ impl<const SIZE: usize, C: PixelColor> embedded_graphics::Drawable for WaveWindo
     where
         D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
     {
-        let width_factor = self.buf.len() as f32 / self.size.width as f32;
-
         // TODO: Linear interpolation instead of point
         for x in 0..self.size.width as usize {
-            // let sample = self.buf[x * self.size.width as usize / self.buf.len()] as i64
-            //     * self.size.height as i64
-            //     / 2
-            //     / i32::HIGH as i64;
-            let sample = ToSample::<f32>::to_sample(self.buf[(x as f32 * width_factor) as usize])
-                * self.size.height as f32
-                / 2.;
-            let p = Point::new(x as i32, sample as i32);
+            let sample = self.buf[x * self.size.width as usize / self.buf.len()];
+            let p = Point::new(x as i32, sample);
             Pixel(p + self.pos, self.color).draw(target)?;
         }
 

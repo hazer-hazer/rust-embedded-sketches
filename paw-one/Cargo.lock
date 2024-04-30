@@ -365,6 +365,7 @@ dependencies = [
  "embassy-time",
  "embassy-time-driver",
  "embassy-usb-driver",
+ "embassy-usb-synopsys-otg",
  "embedded-can",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
@@ -374,7 +375,7 @@ dependencies = [
  "embedded-io-async",
  "embedded-storage",
  "embedded-storage-async",
- "futures",
+ "futures-util",
  "nb 1.1.0",
  "proc-macro2",
  "quote",
@@ -429,7 +430,7 @@ version = "0.1.0"
 
 [[package]]
 name = "embassy-usb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "defmt",
  "embassy-futures",
@@ -446,6 +447,15 @@ name = "embassy-usb-driver"
 version = "0.1.0"
 dependencies = [
  "defmt",
+]
+
+[[package]]
+name = "embassy-usb-synopsys-otg"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embassy-sync",
+ "embassy-usb-driver",
 ]
 
 [[package]]
@@ -1195,7 +1205,7 @@ dependencies = [
 [[package]]
 name = "stm32-metapac"
 version = "15.0.0"
-source = "git+https://github.com/embassy-rs/stm32-data-generated?tag=stm32-data-2b7ec569a5510c324693f0515ac8ea20b12917a9#aabf7bce7fdb78ce99911029e4cdc02c40aa9c76"
+source = "git+https://github.com/embassy-rs/stm32-data-generated?tag=stm32-data-01ac9bfd035961dc75f32dcd6080501538246d5c#a5e8ddc393950d780eb95fba15833d8a68b4e216"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
