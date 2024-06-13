@@ -97,6 +97,7 @@ impl AudioSourceDuration {
 //     // }
 // }
 
+// TODO: Rewrite sound source to frames of stereo samples
 pub trait AudioSource: AudioSourceIter
 where
     Self::S: Sample,
