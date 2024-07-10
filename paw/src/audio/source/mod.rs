@@ -1,24 +1,30 @@
+pub mod buffered;
+pub mod looped;
 mod mix;
+pub mod restarting;
 pub mod zero;
 
-use core::{iter::Iterator, time::Duration};
+use core::iter::Iterator;
 
 use crate::dsp::sample::Sample;
 
 #[derive(Clone, Copy)]
-pub struct Channel {
-    pub count: usize,
-    pub channel: usize,
+pub struct Channels {
+    pub count: u8,
+    pub current: u8,
 }
 
-impl Channel {
-    pub fn new(count: usize, channel: usize) -> Self {
-        assert!(count > 0 && channel < count - 1);
-        Self { count, channel }
+impl Channels {
+    pub fn new(count: u8, channel: u8) -> Self {
+        assert!(count > 0 && channel < count);
+        Self {
+            count,
+            current: channel,
+        }
     }
 
-    pub fn stereo(channel: usize) -> Self {
-        Self::new(2, channel)
+    pub fn stereo(start_channel: u8) -> Self {
+        Self::new(2, start_channel)
     }
 
     pub fn stereo_first() -> Self {
@@ -28,29 +34,128 @@ impl Channel {
     pub fn mono() -> Self {
         Self::new(1, 0)
     }
+
+    fn restart(&mut self) {
+        self.current = 0;
+    }
+
+    fn next_channel(&mut self) -> u8 {
+        let last = self.current;
+        self.current = (self.current + 1) % self.count;
+        last
+    }
 }
 
 #[derive(Clone, Copy)]
-pub struct AudioSourceDuration {
-    total: Duration,
-    samples_left: u64,
+pub struct Duration {
+    pub real: core::time::Duration,
+    pub samples: u32,
 }
 
-impl AudioSourceDuration {
-    pub fn new(total: Duration) -> Self {
+impl Duration {
+    pub fn from_real(real: core::time::Duration, sample_rate: u32) -> Self {
         Self {
-            total,
-            samples_left: 0,
+            real,
+            samples: (real.as_secs_f32() * sample_rate as f32) as u32,
         }
     }
 
-    pub fn tick(&mut self) -> bool {
-        if self.samples_left == 0 {
-            return false;
+    pub fn from_samples(samples: u32, sample_rate: u32) -> Self {
+        Self {
+            real: core::time::Duration::from_secs_f32(samples as f32 / sample_rate as f32),
+            samples,
         }
-        self.samples_left -= 1;
-        true
     }
+
+    pub fn from_single_period(freq: f32, sample_rate: u32) -> Self {
+        Self::from_samples((sample_rate as f32 / freq) as u32, sample_rate)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct AudioSourceTime {
+    total: Option<Duration>,
+    sample_index: u32,
+}
+
+impl AudioSourceTime {
+    pub fn new(total: Option<Duration>) -> Self {
+        Self {
+            total,
+            sample_index: 0,
+        }
+    }
+
+    pub fn infinite() -> Self {
+        Self {
+            total: None,
+            sample_index: 0,
+        }
+    }
+
+    fn restart(&mut self) {
+        self.sample_index = 0;
+    }
+
+    fn set_duration(&mut self, duration: Duration) {
+        self.total = Some(duration);
+        self.restart()
+    }
+
+    fn tick(&mut self) -> Option<u32> {
+        let point = self.sample_index;
+
+        self.sample_index += 1;
+
+        if let Some(total) = self.total {
+            if self.sample_index <= total.samples {
+                Some(point)
+            } else {
+                None
+            }
+        } else {
+            Some(point)
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.total
+            .is_some_and(|dur| self.sample_index >= dur.samples)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct AudioSourceProps {
+    channels: Channels,
+    sample_rate: u32,
+    time: AudioSourceTime,
+}
+
+impl AudioSourceProps {
+    pub fn new(channels: Channels, sample_rate: u32, duration: Option<Duration>) -> Self {
+        Self {
+            channels,
+            sample_rate,
+            time: AudioSourceTime::new(duration),
+        }
+    }
+
+    // pub fn infinite_mono(sample_rate: u32) -> Self {
+    //     Self::new(1, sample_rate, None)
+    // }
+
+    // pub fn infinite_stereo(sample_rate: u32) -> Self {
+    //     Self::new(2, sample_rate, None)
+    // }
+
+    // pub fn set_duration_samples(&mut self, samples: u32) {
+    //     self.time
+    //         .set_duration(Duration::from_samples(samples, self.sample_rate))
+    // }
+
+    // pub fn set_duration_single_cycle(&mut self, freq: f32) {
+    //     self.set_duration_samples((self.sample_rate as f32 / freq) as u32)
+    // }
 }
 
 // pub trait Sample: Clone + Copy {
@@ -98,33 +203,93 @@ impl AudioSourceDuration {
 // }
 
 // TODO: Rewrite sound source to frames of stereo samples
-pub trait AudioSource: AudioSourceIter
+pub trait AudioSource: Iterator
 where
-    Self::S: Sample,
+    Self::Item: Sample,
+    Self: Sized,
 {
+    // !!! #[inline]
     fn props(&self) -> AudioSourceProps;
+    // !!! #[inline]
+    fn props_mut(&mut self) -> &mut AudioSourceProps;
 
-    fn channels(&self) -> u16 {
-        self.props().channels
+    #[inline]
+    fn channels_count(&self) -> u8 {
+        self.props().channels.count
     }
 
+    #[inline]
+    fn current_channel(&self) -> u8 {
+        self.props().channels.current
+    }
+
+    #[inline]
     fn sample_rate(&self) -> u32 {
         self.props().sample_rate
     }
 
-    fn total_duration(&self) -> Option<Duration> {
-        self.props().duration.map(|d| d.total)
+    #[inline]
+    fn duration(&self) -> Option<core::time::Duration> {
+        self.props().time.total.map(|duration| duration.real)
     }
 
-    fn samples_left(&self) -> Option<u64> {
-        self.props().duration.map(|d| d.samples_left)
+    #[inline]
+    fn duration_samples(&self) -> Option<u32> {
+        self.props().time.total.map(|duration| duration.samples)
     }
 
-    fn duration_left(&self) -> Option<Duration> {
-        self.props()
-            .duration
-            .map(|d| Duration::from_nanos(1_000_000_000 / d.samples_left))
+    #[inline]
+    fn is_finished(&self) -> bool {
+        self.props().time.is_finished()
     }
+
+    #[inline]
+    fn next_channel(&mut self) -> u8 {
+        self.props().channels.next_channel()
+    }
+
+    #[inline]
+    fn time_tick(&mut self) -> Option<u32> {
+        self.props().time.tick()
+    }
+
+    #[inline]
+    fn set_duration(&mut self, duration: Duration) {
+        self.props_mut().time.set_duration(duration)
+    }
+
+    #[inline]
+    fn restart(&mut self) {
+        self.props_mut().time.restart();
+        self.props_mut().channels.restart();
+    }
+
+    // Builders //
+    #[inline]
+    fn channels(mut self, channels: u8) -> Self {
+        self.props_mut().channels.count = channels;
+        self
+    }
+
+    #[inline]
+    fn mono(self) -> Self {
+        self.channels(1)
+    }
+
+    #[inline]
+    fn stereo(self) -> Self {
+        self.channels(2)
+    }
+
+    // fn samples_left(&self) -> Option<u64> {
+    //     self.props().duration.map(|d| d.samples_left)
+    // }
+
+    // fn duration_left(&self) -> Option<Duration> {
+    //     self.props()
+    //         .duration
+    //         .map(|d| Duration::from_nanos(1_000_000_000 / d.samples_left))
+    // }
 
     // Iterators //
     // fn mix<O: AudioSource>(self, other: O) -> Mix<Self, O>
@@ -133,46 +298,6 @@ where
     // {
     //     mix(self, other)
     // }
-}
-
-pub trait AudioSourceIter {
-    type S: Sample;
-
-    fn next_sample(&mut self) -> Self::S;
-}
-
-impl<T: Sample> Iterator for dyn AudioSource<S = T> {
-    type Item = T;
-
-    // Note: Always `Some`. May be zero
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(AudioSourceIter::next_sample(self))
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct AudioSourceProps {
-    pub channels: u16,
-    pub sample_rate: u32,
-    pub duration: Option<AudioSourceDuration>,
-}
-
-impl AudioSourceProps {
-    pub fn new(channels: u16, sample_rate: u32, duration: Option<Duration>) -> Self {
-        Self {
-            channels,
-            sample_rate,
-            duration: duration.map(|total| AudioSourceDuration::new(total)),
-        }
-    }
-
-    pub fn infinite_mono(sample_rate: u32) -> Self {
-        Self::new(1, sample_rate, None)
-    }
-
-    pub fn infinite_stereo(sample_rate: u32) -> Self {
-        Self::new(2, sample_rate, None)
-    }
 }
 
 pub trait Pausable {

@@ -5,7 +5,7 @@ use embedded_graphics::{
 };
 
 use crate::{
-    audio::source::Channel,
+    audio::source::Channels,
     dsp::sample::{Sample, ToSample},
 };
 
@@ -31,12 +31,12 @@ pub struct WaveWindow<const SIZE: usize, C: PixelColor> {
     buf: [i32; SIZE],
     pointer: usize,
     color: C,
-    channel_info: Channel,
+    channel_info: Channels,
     window: Window,
 }
 
 impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
-    pub fn new(pos: Point, size: Size, color: C, channel_info: Channel, window: Window) -> Self {
+    pub fn new(pos: Point, size: Size, color: C, channel_info: Channels, window: Window) -> Self {
         Self {
             pos,
             size,
@@ -69,13 +69,13 @@ impl<const SIZE: usize, C: PixelColor> WaveWindow<SIZE, C> {
         let avg_size = chunk_size as f32;
         let half_height = self.size.height as f32 / 2.0;
 
-        for chunk in buf[self.channel_info.channel..]
+        for chunk in buf[self.channel_info.current as usize..]
             .chunks(chunk_size)
             .take(self.buf.len() - self.pointer)
         {
             let sum = chunk
                 .iter()
-                .step_by(self.channel_info.count)
+                .step_by(self.channel_info.count as usize)
                 .copied()
                 .fold(0.0, |sum, s| {
                     let sample = ToSample::<f32>::to_sample(s);
